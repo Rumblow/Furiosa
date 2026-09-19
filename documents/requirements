@@ -9,5 +9,7 @@ pygame==2.6.1
 # El resultado queda en dist/Furiosa.exe.
 # Para ejecutar desde el codigo fuente: py main.py
 # Mantener la carpeta assets junto a main.py.
-# Controles: A/D o flechas = movimiento; Espacio = salto; Z = Swoosh;
-# X = Claw Scratch; Escape = salir.
+# Controles: A/D o flechas = movimiento; Espacio = salto; Z/X/C = ataques 1/2/3;
+# +/- o botones inferiores = zoom; F11 = pantalla completa; Escape = menu de pausa.
+# El menu de pausa permite regresar a la batalla, cambiar de estancia o salir.
+# Guardar partida y Configuracion aparecen deshabilitados temporalmente.

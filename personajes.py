@@ -55,6 +55,42 @@ class ProyectilFuego:
         ventana.blit(imagen, imagen.get_rect(center=(round(self.x), round(self.y))))
 
 
+class ProyectilArrow:
+    def __init__(self, x, y, frames, facing_left, dano, velocidad=9):
+        self.x = float(x)
+        self.y = float(y)
+        self.frames = frames
+        self.frame = 0
+        self.dano = dano
+        self.velocidad = -velocidad if facing_left else velocidad
+        self.ultimo_cambio_frame = pygame.time.get_ticks()
+        self.duracion_frame = 80
+
+    def imagen(self):
+        return self.frames[self.frame]
+
+    def rect(self):
+        return self.imagen().get_rect(center=(round(self.x), round(self.y)))
+
+    def actualizar(self, limites):
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.ultimo_cambio_frame >= self.duracion_frame:
+            self.frame = (self.frame + 1) % len(self.frames)
+            self.ultimo_cambio_frame = tiempo_actual
+
+        self.x += self.velocidad
+        rect_proyectil = self.rect()
+        return (
+            rect_proyectil.right > limites.left
+            and rect_proyectil.left < limites.right
+            and rect_proyectil.bottom > limites.top
+            and rect_proyectil.top < limites.bottom
+        )
+
+    def dibujar(self, ventana):
+        ventana.blit(self.imagen(), self.rect())
+
+
 class Personaje:
     def __init__(self, x, y, imagen, vida=100, ataque=10, defensa=5, velocidad=None, imagen_facing_left=None):
         self.x = x
@@ -87,7 +123,8 @@ class Personaje:
         self.en_suelo = True
         self.velocidad_vertical = 0.0
         self.gravedad = 0.9
-        self.velocidad_salto = math.sqrt(4 * self.gravedad * self.rect.height)
+        self.altura_salto = self.rect.height * 2
+        self.velocidad_salto = math.sqrt(2 * self.gravedad * self.altura_salto)
 
     @property
     def danio_swoosh(self):
@@ -201,7 +238,8 @@ class Personaje:
             self.claw_ya_golpeo = True
 
     def recibir_dano(self, cantidad):
-        self.atributos["vida"] = max(0, self.atributos["vida"] - cantidad)
+        dano_efectivo = max(1, round(cantidad - self.atributos["defensa"]))
+        self.atributos["vida"] = max(0, self.atributos["vida"] - dano_efectivo)
 
     def dibujar(self, ventana):
         imagen = self.imagen_facing_left if self.facing_left else self.imagen
@@ -228,10 +266,259 @@ class Personaje:
 
         self.rect.topleft = (self.x, self.y)
 
+
+class Soldier(Personaje):
+    def __init__(self, x, y, imagen, imagen_facing_left=None, vida=100, ataque=10, defensa=5, velocidad=None):
+        super().__init__(
+            x,
+            y,
+            imagen,
+            vida=vida,
+            ataque=ataque,
+            defensa=defensa,
+            velocidad=velocidad,
+            imagen_facing_left=imagen_facing_left,
+        )
+        self.animaciones = {}
+        self.animaciones_facing_left = {}
+        self.estado_animacion = "idle"
+        self.frame_animacion = 0
+        self.ultimo_cambio_animacion = pygame.time.get_ticks()
+        self.duracion_frame_animacion = 100
+        self.desplazamiento_visual_y = 0
+        self.ataques_soldier = {}
+        self.ataque_activo = None
+        self.frame_ataque = 0
+        self.ultimo_cambio_ataque = 0
+        self.duracion_frame_ataque = 80
+        self.ataque_ya_golpeo = False
+        self.arrow_frames = []
+        self.arrow_frames_facing_left = []
+        self.proyectiles_arrow = []
+        self.ataque_3_disparado = False
+        self.ataque_animacion_terminada = False
+        self.ultimo_uso_ataque = {1: -2000, 2: -2000, 3: -2000}
+        self.cooldown_ataques = {1: 500, 2: 900, 3: 2000}
+        self.estado_temporal = None
+        self.ultimo_cambio_estado = 0
+
+    def configurar_animaciones(self, animaciones, duracion_frame=100):
+        self.animaciones = animaciones
+        self.animaciones_facing_left = {
+            nombre: [pygame.transform.flip(frame, True, False) for frame in frames]
+            for nombre, frames in animaciones.items()
+        }
+        imagen_referencia = animaciones.get("idle", [self.imagen])[0]
+        self.desplazamiento_visual_y = (
+            imagen_referencia.get_height() - imagen_referencia.get_bounding_rect().bottom
+        )
+        self.duracion_frame_animacion = duracion_frame
+
+    def configurar_ataques(self, ataques, duracion_frame=80):
+        self.ataques_soldier = ataques
+        self.ataques_soldier_facing_left = {
+            numero: [pygame.transform.flip(frame, True, False) for frame in frames]
+            for numero, frames in ataques.items()
+        }
+        self.duracion_frame_ataque = duracion_frame
+
+    def configurar_arrow(self, frames, frames_facing_left=None):
+        self.arrow_frames = frames
+        self.arrow_frames_facing_left = frames_facing_left or [
+            pygame.transform.flip(frame, True, False) for frame in frames
+        ]
+
+    def activar_ataque(self, numero):
+        tiempo_actual = pygame.time.get_ticks()
+        if (
+            numero not in self.ataques_soldier
+            or self.ataque_activo is not None
+            or self.atributos["vida"] <= 0
+            or tiempo_actual - self.ultimo_uso_ataque[numero] < self.cooldown_ataques[numero]
+        ):
+            return
+        self.ataque_activo = numero
+        self.frame_ataque = 0
+        self.ultimo_cambio_ataque = tiempo_actual
+        self.ultimo_uso_ataque[numero] = tiempo_actual
+        self.ataque_ya_golpeo = False
+        self.ataque_3_disparado = False
+        self.ataque_animacion_terminada = False
+
+    def actualizar_animacion(self):
+        tiempo_actual = pygame.time.get_ticks()
+        if (
+            self.estado_temporal == "hurt"
+            and tiempo_actual - self.ultimo_cambio_estado >= 350
+        ):
+            self.estado_temporal = None
+            self.frame_animacion = 0
+
+        estado = self.estado_temporal or self.estado_animacion
+        frames = self.animaciones.get(estado, self.animaciones.get("idle", []))
+        if not frames:
+            return
+        if tiempo_actual - self.ultimo_cambio_animacion >= self.duracion_frame_animacion:
+            siguiente_frame = self.frame_animacion + 1
+            self.frame_animacion = (
+                min(siguiente_frame, len(frames) - 1)
+                if estado == "death"
+                else siguiente_frame % len(frames)
+            )
+            self.ultimo_cambio_animacion = tiempo_actual
+
+    def actualizar_ataque_soldier(self):
+        if self.ataque_activo is None:
+            return
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.ultimo_cambio_ataque < self.duracion_frame_ataque:
+            return
+        siguiente_frame = self.frame_ataque + 1
+        if siguiente_frame >= len(self.ataques_soldier[self.ataque_activo]):
+            self.frame_ataque = len(self.ataques_soldier[self.ataque_activo]) - 1
+            self.ataque_animacion_terminada = True
+            if self.ataque_activo != 3 or self.ataque_3_disparado:
+                self.ataque_activo = None
+        else:
+            self.frame_ataque = siguiente_frame
+        self.ultimo_cambio_ataque = tiempo_actual
+
+    def atacar_con_ataque(self, numero, objetivo):
+        if self.ataque_activo != numero:
+            return
+        if numero != 3 and abs(self.rect.centerx - objetivo.rect.centerx) > 150:
+            return
+        if numero == 3:
+            if (
+                self.ataque_3_disparado
+                or not self.ataque_animacion_terminada
+                or not self.arrow_frames
+            ):
+                return
+            frames = self.arrow_frames_facing_left if self.facing_left else self.arrow_frames
+            origen_x = self.rect.left if self.facing_left else self.rect.right
+            origen_y = self.rect_visible().centery
+            self.proyectiles_arrow.append(
+                ProyectilArrow(
+                    origen_x,
+                    origen_y,
+                    frames,
+                    self.facing_left,
+                    dano=round(self.atributos["ataque"] * 3 * 0.7),
+                    velocidad=9,
+                )
+            )
+            self.ataque_3_disparado = True
+            return
+        if self.ataque_ya_golpeo:
+            return
+        imagen = self.obtener_imagen_ataque()
+        if self.facing_left:
+            rect_ataque = imagen.get_rect(midright=(self.rect.left, self.rect.centery))
+        else:
+            rect_ataque = imagen.get_rect(midleft=(self.rect.right, self.rect.centery))
+        if rect_ataque.colliderect(objetivo.rect):
+            objetivo.recibir_dano(self.atributos["ataque"] * numero)
+            self.ataque_ya_golpeo = True
+
+    def actualizar_proyectiles_arrow(self, objetivo, limites):
+        proyectiles_activos = []
+        for proyectil in self.proyectiles_arrow:
+            sigue_activo = proyectil.actualizar(limites)
+            if proyectil.rect().colliderect(objetivo.rect):
+                objetivo.recibir_dano(proyectil.dano)
+                continue
+            if sigue_activo:
+                proyectiles_activos.append(proyectil)
+        self.proyectiles_arrow = proyectiles_activos
+
+    def dibujar_proyectiles_arrow(self, ventana):
+        for proyectil in self.proyectiles_arrow:
+            proyectil.dibujar(ventana)
+
+    def obtener_imagen_ataque(self):
+        frames = (
+            self.ataques_soldier_facing_left[self.ataque_activo]
+            if self.facing_left
+            else self.ataques_soldier[self.ataque_activo]
+        )
+        return frames[min(self.frame_ataque, len(frames) - 1)]
+
+    def recibir_dano(self, cantidad):
+        super().recibir_dano(cantidad)
+        self.estado_temporal = "death" if self.atributos["vida"] <= 0 else "hurt"
+        self.frame_animacion = 0
+        self.ultimo_cambio_estado = pygame.time.get_ticks()
+
+    def movimiento(self, mover_izquierda, mover_derecha, saltar, limite_suelo):
+        super().movimiento(mover_izquierda, mover_derecha, saltar, limite_suelo)
+        if self.atributos["vida"] > 0 and self.ataque_activo is None:
+            self.estado_animacion = "walk" if mover_izquierda or mover_derecha else "idle"
+
+    def dibujar(self, ventana):
+        if self.ataque_activo is not None:
+            imagen = self.obtener_imagen_ataque()
+            rect_ataque = imagen.get_rect(
+                midbottom=(self.rect.centerx, self.rect.bottom + self.desplazamiento_visual_y)
+            )
+            ventana.blit(imagen, rect_ataque)
+            return
+        self.actualizar_animacion()
+        frames = self.animaciones_facing_left if self.facing_left else self.animaciones
+        animacion = frames.get(self.estado_temporal or self.estado_animacion, frames.get("idle", []))
+        if animacion:
+            imagen = animacion[self.frame_animacion % len(animacion)]
+            rect_imagen = imagen.get_rect(
+                midbottom=(self.rect.centerx, self.rect.bottom + self.desplazamiento_visual_y)
+            )
+            ventana.blit(imagen, rect_imagen)
+
+    def rect_visible(self):
+        _, rect_imagen, area_visible = self._imagen_y_rect_visible()
+        return pygame.Rect(
+            rect_imagen.left + area_visible.left,
+            rect_imagen.top + area_visible.top,
+            area_visible.width,
+            area_visible.height,
+        )
+
+    def _imagen_y_rect_visible(self):
+        if self.ataque_activo is not None:
+            imagen = self.obtener_imagen_ataque()
+        else:
+            frames = self.animaciones_facing_left if self.facing_left else self.animaciones
+            animacion = frames.get(self.estado_temporal or self.estado_animacion, frames.get("idle", []))
+            imagen = animacion[self.frame_animacion % len(animacion)] if animacion else self.imagen
+
+        rect_imagen = imagen.get_rect(
+            midbottom=(self.rect.centerx, self.rect.bottom + self.desplazamiento_visual_y)
+        )
+        return imagen, rect_imagen, imagen.get_bounding_rect()
+
+    def colisiona_con_proyectil(self, proyectil):
+        imagen, rect_imagen, _ = self._imagen_y_rect_visible()
+        rect_proyectil = proyectil.rect()
+        mascara_jugador = pygame.mask.from_surface(imagen)
+        mascara_proyectil = pygame.mask.from_surface(proyectil.imagen_orientada())
+        desplazamiento = (
+            rect_proyectil.left - rect_imagen.left,
+            rect_proyectil.top - rect_imagen.top,
+        )
+        return mascara_jugador.overlap(mascara_proyectil, desplazamiento) is not None
+
 class Enemigo(Personaje):
-    def __init__(self, x, y, imagen, imagen_facing_left=None, vida=1325, ataque=10, puede_teletransportarse=False):
-        super().__init__(x, y, imagen, vida=vida, ataque=ataque, imagen_facing_left=imagen_facing_left)
-        self.velocidad = 2.1
+    def __init__(self, x, y, imagen, imagen_facing_left=None, vida=1325, ataque=10, defensa=5, velocidad=2.1, puede_teletransportarse=False):
+        super().__init__(
+            x,
+            y,
+            imagen,
+            vida=vida,
+            ataque=ataque,
+            defensa=defensa,
+            imagen_facing_left=imagen_facing_left,
+        )
+        self.velocidad = velocidad
+        self.atributos["velocidad"] = velocidad
         self.direccion_movimiento = -1
         self.proyectiles_fuego = []
         self.frames_fb = []
@@ -338,6 +625,7 @@ class Enemigo(Personaje):
                     self.rect.centery,
                     objetivo,
                     frames,
+                    dano=self.atributos["ataque"],
                     punto_objetivo=punto_objetivo,
                 )
             )
@@ -357,6 +645,7 @@ class Enemigo(Personaje):
                         self.rect.centery,
                         objetivo,
                         frames,
+                        dano=self.atributos["ataque"],
                         punto_objetivo=(punto_x, punto_y),
                     )
                 )
@@ -364,9 +653,15 @@ class Enemigo(Personaje):
 
     def actualizar_proyectiles(self, objetivo, limites):
         proyectiles_activos = []
+        rect_objetivo = objetivo.rect_visible() if hasattr(objetivo, "rect_visible") else objetivo.rect
         for proyectil in self.proyectiles_fuego:
             sigue_activo = proyectil.actualizar(limites)
-            if proyectil.rect().colliderect(objetivo.rect):
+            colisiona = (
+                objetivo.colisiona_con_proyectil(proyectil)
+                if hasattr(objetivo, "colisiona_con_proyectil")
+                else proyectil.rect().colliderect(rect_objetivo)
+            )
+            if colisiona:
                 objetivo.recibir_dano(proyectil.dano)
                 continue
             if sigue_activo:
@@ -387,4 +682,146 @@ class Enemigo(Personaje):
             self.direccion_movimiento = -1
         self.facing_left = self.direccion_movimiento < 0
         self.rect.topleft = (self.x, self.y)
+
+
+class Orc(Enemigo):
+    def __init__(
+        self,
+        x,
+        y,
+        imagen,
+        animaciones,
+        ataques,
+        imagen_facing_left=None,
+        vida=220,
+        ataque=16,
+        defensa=8,
+        velocidad=1.6,
+    ):
+        super().__init__(
+            x,
+            y,
+            imagen,
+            imagen_facing_left=imagen_facing_left,
+            vida=vida,
+            ataque=ataque,
+            defensa=defensa,
+            velocidad=velocidad,
+        )
+        self.animaciones_orc = animaciones
+        self.animaciones_orc_facing_left = {
+            nombre: [pygame.transform.flip(frame, True, False) for frame in frames]
+            for nombre, frames in animaciones.items()
+        }
+        self.ataques_orc = ataques
+        self.ataques_orc_facing_left = {
+            numero: [pygame.transform.flip(frame, True, False) for frame in frames]
+            for numero, frames in ataques.items()
+        }
+        self.estado_orc = "idle"
+        self.estado_temporal_orc = None
+        self.frame_orc = 0
+        self.ultimo_cambio_orc = pygame.time.get_ticks()
+        self.ultimo_cambio_estado_orc = 0
+        self.ataque_orc_activo = None
+        self.frame_ataque_orc = 0
+        self.ultimo_cambio_ataque_orc = 0
+        self.ultimo_uso_ataque_orc = {1: -2000, 2: -2000}
+        self.cooldown_ataque_orc = {1: 900, 2: 1400}
+        self.ataque_orc_ya_golpeo = False
+        referencia = animaciones.get("idle", [imagen])[0]
+        self.desplazamiento_visual_orc_y = (
+            referencia.get_height() - referencia.get_bounding_rect().bottom
+        )
+
+    def recibir_dano(self, cantidad):
+        super().recibir_dano(cantidad)
+        self.estado_temporal_orc = "death" if self.atributos["vida"] <= 0 else "hurt"
+        self.frame_orc = 0
+        self.ultimo_cambio_estado_orc = pygame.time.get_ticks()
+
+    def activar_ataque_orc(self, numero):
+        tiempo_actual = pygame.time.get_ticks()
+        if (
+            numero not in self.ataques_orc
+            or self.ataque_orc_activo is not None
+            or self.atributos["vida"] <= 0
+            or tiempo_actual - self.ultimo_uso_ataque_orc[numero] < self.cooldown_ataque_orc[numero]
+        ):
+            return
+        self.ataque_orc_activo = numero
+        self.frame_ataque_orc = 0
+        self.ultimo_cambio_ataque_orc = tiempo_actual
+        self.ultimo_uso_ataque_orc[numero] = tiempo_actual
+        self.ataque_orc_ya_golpeo = False
+
+    def actualizar_ataque_orc(self):
+        if self.ataque_orc_activo is None:
+            return
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.ultimo_cambio_ataque_orc < 85:
+            return
+        self.frame_ataque_orc += 1
+        self.ultimo_cambio_ataque_orc = tiempo_actual
+        if self.frame_ataque_orc >= len(self.ataques_orc[self.ataque_orc_activo]):
+            self.ataque_orc_activo = None
+
+    def atacar_con_orc(self, objetivo):
+        if self.ataque_orc_activo is None or self.ataque_orc_ya_golpeo:
+            return
+        if abs(self.rect.centerx - objetivo.rect.centerx) > 170:
+            return
+        imagen = self.obtener_imagen_ataque_orc()
+        if self.facing_left:
+            rect_ataque = imagen.get_rect(midright=(self.rect.left, self.rect.centery))
+        else:
+            rect_ataque = imagen.get_rect(midleft=(self.rect.right, self.rect.centery))
+        if rect_ataque.colliderect(objetivo.rect):
+            objetivo.recibir_dano(self.atributos["ataque"])
+            self.ataque_orc_ya_golpeo = True
+
+    def obtener_imagen_ataque_orc(self):
+        frames = (
+            self.ataques_orc_facing_left[self.ataque_orc_activo]
+            if self.facing_left
+            else self.ataques_orc[self.ataque_orc_activo]
+        )
+        return frames[min(self.frame_ataque_orc, len(frames) - 1)]
+
+    def actualizar_animacion_orc(self):
+        tiempo_actual = pygame.time.get_ticks()
+        if (
+            self.estado_temporal_orc == "hurt"
+            and tiempo_actual - self.ultimo_cambio_estado_orc >= 350
+        ):
+            self.estado_temporal_orc = None
+            self.frame_orc = 0
+        estado = self.estado_temporal_orc or self.estado_orc
+        frames = self.animaciones_orc.get(estado, self.animaciones_orc["idle"])
+        if tiempo_actual - self.ultimo_cambio_orc >= 100:
+            siguiente = self.frame_orc + 1
+            self.frame_orc = min(siguiente, len(frames) - 1) if estado == "death" else siguiente % len(frames)
+            self.ultimo_cambio_orc = tiempo_actual
+
+    def movimiento(self, limite_izquierdo, limite_derecho):
+        super().movimiento(limite_izquierdo, limite_derecho)
+        if self.atributos["vida"] > 0 and self.ataque_orc_activo is None:
+            self.estado_orc = "walk"
+
+    def atacar_con_fb(self, objetivo):
+        return
+
+    def dibujar(self, ventana):
+        if self.ataque_orc_activo is not None:
+            imagen = self.obtener_imagen_ataque_orc()
+        else:
+            self.actualizar_animacion_orc()
+            frames = self.animaciones_orc_facing_left if self.facing_left else self.animaciones_orc
+            estado = self.estado_temporal_orc or self.estado_orc
+            animacion = frames.get(estado, frames["idle"])
+            imagen = animacion[self.frame_orc % len(animacion)]
+        rect_imagen = imagen.get_rect(
+            midbottom=(self.rect.centerx, self.rect.bottom + self.desplazamiento_visual_orc_y)
+        )
+        ventana.blit(imagen, rect_imagen)
     

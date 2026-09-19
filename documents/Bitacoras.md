@@ -84,6 +84,26 @@
 - La rama principal utilizada es `main`.
 - El proyecto y el ejecutable se han preparado para subirse al repositorio remoto.
 
+### 10. Personajes, interfaz y combate actualizado
+
+- Se incorporo el personaje Soldier con animaciones de idle, caminar, daño, muerte y tres ataques.
+- El tercer ataque del Soldier utiliza el proyectil Arrow de `assets/imagenes/Soldier/Arrow(projectile)/`.
+- Se incorporo el enemigo Orc con animaciones completas, dos ataques melee y atributos propios.
+- Se añadieron vida, ataque, defensa y velocidad balanceados para los personajes.
+- La defensa reduce el daño recibido y los ataques melee requieren proximidad.
+- Se agregaron zoom con limites, pantalla redimensionable y pantalla completa con F11.
+- La escena se escala sin suavizado para conservar la nitidez de los sprites.
+- Bossbar, atributos, selector de estancias, pantalla final y menu de pausa permanecen fijos ante el zoom.
+- Escape abre un menu de pausa con opciones para continuar, cambiar de estancia y salir.
+- Guardar partida y Configuracion se muestran deshabilitados hasta su implementacion.
+
+### 11. Interfaces estaticas y compilacion actualizada
+
+- El selector de estancias se mantiene fijo y visible aunque cambie el zoom.
+- El menu de pausa, la pantalla final, la bossbar y los atributos se dibujan sobre la pantalla fisica.
+- Se reconstruyo `dist/Furiosa.exe` con PyInstaller usando `Furiosa.spec`.
+- La compilacion incluye los recursos actuales de `assets/`, incluidos Orc y Arrow.
+
 ## Estado actual
 
 El juego cuenta con un jugador controlable, atributos visibles, ataque swoosh, enemigo con bossbar, ataque de bolas de fuego, estados de victoria y derrota, reinicio de partida, salida del programa y un ejecutable de Windows con icono personalizado.
