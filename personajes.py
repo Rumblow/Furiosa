@@ -142,7 +142,7 @@ class Personaje:
 
 class Enemigo(Personaje):
     def __init__(self, x, y, imagen):
-        super().__init__(x, y, imagen, vida=25)
+        super().__init__(x, y, imagen, vida=1325)
         self.velocidad = 3
         self.proyectiles_fuego = []
         self.frames_fb = []

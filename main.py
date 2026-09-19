@@ -30,16 +30,35 @@ rutas_fb = [
 ]
 fb_frames = [pygame.image.load(ruta).convert_alpha() for ruta in rutas_fb]
 
-jugador = Personaje(x=50, y=50, imagen=player_image)
-enemigo = Enemigo(x=500, y=300, imagen=enemy_image)
-jugador.configurar_swoosh(swoosh_frames)
-enemigo.configurar_ataque_fb(fb_frames)
 maximos_atributos = {
-    "vida": jugador.vida_maxima,
+    "vida": 100,
     "ataque": 100,
     "defensa": 100,
     "velocidad": 10,
 }
+
+
+def crear_partida():
+    jugador = Personaje(x=50, y=50, imagen=player_image)
+    enemigo = Enemigo(x=500, y=300, imagen=enemy_image)
+    jugador.configurar_swoosh(swoosh_frames)
+    enemigo.configurar_ataque_fb(fb_frames)
+    return jugador, enemigo
+
+
+def dibujar_boton(ventana, rectangulo, texto, fuente, color):
+    pygame.draw.rect(ventana, color, rectangulo)
+    pygame.draw.rect(ventana, (255, 255, 255), rectangulo, 2)
+    superficie_texto = fuente.render(texto, True, (255, 255, 255))
+    ventana.blit(superficie_texto, superficie_texto.get_rect(center=rectangulo.center))
+
+
+jugador, enemigo = crear_partida()
+fuente_final = pygame.font.Font(None, 32)
+fuente_boton = pygame.font.Font(None, 24)
+boton_repetir = pygame.Rect(55, 360, 565, 52)
+boton_salir = pygame.Rect(640, 360, 105, 52)
+estado_final = None
 
 # Definir las variables de movimiento del jugador
 mover_arriba = False
@@ -56,6 +75,18 @@ while ejecutando:
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT:
             ejecutando = False
+
+        elif estado_final is not None:
+            if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                if boton_repetir.collidepoint(evento.pos):
+                    jugador, enemigo = crear_partida()
+                    estado_final = None
+                    mover_arriba = False
+                    mover_abajo = False
+                    mover_izquierda = False
+                    mover_derecha = False
+                elif boton_salir.collidepoint(evento.pos):
+                    ejecutando = False
 
         elif evento.type == pygame.KEYDOWN:
             if evento.key in (pygame.K_w, pygame.K_UP):
@@ -79,15 +110,21 @@ while ejecutando:
             elif evento.key in (pygame.K_d, pygame.K_RIGHT):
                 mover_derecha = False
 
-    jugador.movimiento(mover_arriba, mover_abajo, mover_izquierda, mover_derecha)
+    if estado_final is None:
+        jugador.movimiento(mover_arriba, mover_abajo, mover_izquierda, mover_derecha)
 
-    jugador.actualizar_swoosh()
-    jugador.atacar_con_swoosh(enemigo)
-    enemigo.atacar_con_fb(jugador)
-    enemigo.actualizar_proyectiles(
-        jugador,
-        pygame.Rect(0, 0, constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA),
-    )
+        jugador.actualizar_swoosh()
+        jugador.atacar_con_swoosh(enemigo)
+        enemigo.atacar_con_fb(jugador)
+        enemigo.actualizar_proyectiles(
+            jugador,
+            pygame.Rect(0, 0, constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA),
+        )
+
+        if jugador.atributos["vida"] <= 0:
+            estado_final = "derrota"
+        elif enemigo.atributos["vida"] <= 0:
+            estado_final = "victoria"
 
     ventana.fill((30, 30, 30))
     jugador.dibujar(ventana)
@@ -138,6 +175,25 @@ while ejecutando:
             (55, 190, 95) if nombre == "vida" else (70, 145, 210),
             (x_barra + 2, y_barra + 2, int((ancho_barra - 4) * porcentaje), alto_barra - 4),
         )
+
+    if estado_final is not None:
+        capa_final = pygame.Surface((constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA), pygame.SRCALPHA)
+        capa_final.fill((0, 0, 0, 190))
+        ventana.blit(capa_final, (0, 0))
+        if estado_final == "victoria":
+            mensaje = "Victoria! Has derrotado al Brujo de Cobalto"
+        else:
+            mensaje = "Derrota! El Brujo de Cobalto te ha vencido"
+        texto_final = fuente_final.render(mensaje, True, (255, 255, 255))
+        ventana.blit(texto_final, texto_final.get_rect(center=(constantes.ANCHO_VENTANA // 2, 285)))
+        dibujar_boton(
+            ventana,
+            boton_repetir,
+            "Quieres luchar de nuevo con el mago de cobalto?",
+            fuente_boton,
+            (45, 125, 70),
+        )
+        dibujar_boton(ventana, boton_salir, "Salir", fuente_boton, (150, 45, 45))
 
     pygame.display.flip()
 
