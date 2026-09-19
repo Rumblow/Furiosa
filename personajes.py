@@ -1,6 +1,7 @@
 import pygame
 import constantes
 import math
+import random
 
 
 class ProyectilFuego:
@@ -75,6 +76,14 @@ class Personaje:
         self.swoosh_ultimo_cambio = 0
         self.swoosh_ya_golpeo = False
         self.duracion_frame_swoosh = 80
+        self.claw_frames = []
+        self.claw_frames_facing_left = []
+        self.claw_activo = False
+        self.claw_frame = 0
+        self.claw_ultimo_cambio = 0
+        self.claw_ultimo_uso = -2000
+        self.cooldown_claw = 2000
+        self.claw_ya_golpeo = False
         self.en_suelo = True
         self.velocidad_vertical = 0.0
         self.gravedad = 0.9
@@ -134,6 +143,63 @@ class Personaje:
             objetivo.recibir_dano(self.danio_swoosh)
             self.swoosh_ya_golpeo = True
 
+    @property
+    def danio_claw(self):
+        return self.atributos["ataque"] * 3
+
+    def configurar_claw(self, frames, frames_facing_left=None, duracion_frame=70):
+        self.claw_frames = frames
+        self.claw_frames_facing_left = frames_facing_left or [
+            pygame.transform.flip(frame, True, False) for frame in frames
+        ]
+        self.duracion_frame_claw = duracion_frame
+
+    def activar_claw(self):
+        tiempo_actual = pygame.time.get_ticks()
+        if (
+            self.claw_frames
+            and not self.claw_activo
+            and tiempo_actual - self.claw_ultimo_uso >= self.cooldown_claw
+        ):
+            self.claw_activo = True
+            self.claw_frame = 0
+            self.claw_ultimo_cambio = tiempo_actual
+            self.claw_ultimo_uso = tiempo_actual
+            self.claw_ya_golpeo = False
+
+    def actualizar_claw(self):
+        if not self.claw_activo:
+            return
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.claw_ultimo_cambio >= self.duracion_frame_claw:
+            self.claw_frame += 1
+            self.claw_ultimo_cambio = tiempo_actual
+            if self.claw_frame >= len(self.claw_frames):
+                self.claw_activo = False
+
+    def obtener_imagen_claw(self):
+        frames = self.claw_frames_facing_left if self.facing_left else self.claw_frames
+        return frames[self.claw_frame]
+
+    def obtener_rect_claw(self):
+        if not self.claw_activo:
+            return None
+        imagen = self.obtener_imagen_claw()
+        if self.facing_left:
+            return imagen.get_rect(midright=(self.rect.left, self.rect.centery))
+        return imagen.get_rect(midleft=(self.rect.right, self.rect.centery))
+
+    def dibujar_claw(self, ventana):
+        rect_claw = self.obtener_rect_claw()
+        if rect_claw is not None:
+            ventana.blit(self.obtener_imagen_claw(), rect_claw)
+
+    def atacar_con_claw(self, objetivo):
+        rect_claw = self.obtener_rect_claw()
+        if rect_claw is not None and not self.claw_ya_golpeo and rect_claw.colliderect(objetivo.rect):
+            objetivo.recibir_dano(self.danio_claw)
+            self.claw_ya_golpeo = True
+
     def recibir_dano(self, cantidad):
         self.atributos["vida"] = max(0, self.atributos["vida"] - cantidad)
 
@@ -163,9 +229,9 @@ class Personaje:
         self.rect.topleft = (self.x, self.y)
 
 class Enemigo(Personaje):
-    def __init__(self, x, y, imagen, imagen_facing_left=None, vida=1325, ataque=10):
+    def __init__(self, x, y, imagen, imagen_facing_left=None, vida=1325, ataque=10, puede_teletransportarse=False):
         super().__init__(x, y, imagen, vida=vida, ataque=ataque, imagen_facing_left=imagen_facing_left)
-        self.velocidad = 3
+        self.velocidad = 2.1
         self.direccion_movimiento = -1
         self.proyectiles_fuego = []
         self.frames_fb = []
@@ -174,10 +240,81 @@ class Enemigo(Personaje):
         self.cooldown_disparo_fb = 1000
         self.cooldown_fb = 5000
         self.distancia_minima_ataque = 500
+        self.puede_teletransportarse = puede_teletransportarse
+        self.frames_teletransporte = []
+        self.frames_teletransporte_facing_left = []
+        self.teletransportandose = False
+        self.teletransporte_frame = 0
+        self.ultimo_teletransporte = pygame.time.get_ticks()
+        self.cooldown_teletransporte = 4500
+        self.ultimo_cambio_teletransporte = 0
+        self.duracion_frame_teletransporte = 120
+        self.inicio_teletransporte = None
+        self.destino_teletransporte = None
 
     def configurar_ataque_fb(self, frames, frames_facing_left=None):
         self.frames_fb = frames
         self.frames_fb_facing_left = frames_facing_left or [pygame.transform.flip(frame, True, False) for frame in frames]
+
+    def configurar_teletransporte(self, frames, frames_facing_left=None):
+        self.frames_teletransporte = frames
+        self.frames_teletransporte_facing_left = frames_facing_left or [
+            pygame.transform.flip(frame, True, False) for frame in frames
+        ]
+
+    def iniciar_teletransporte(self, limite_izquierdo, limite_derecho):
+        if (
+            not self.puede_teletransportarse
+            or self.teletransportandose
+            or not self.frames_teletransporte
+        ):
+            return
+
+        destino_x = random.randint(
+            limite_izquierdo,
+            max(limite_izquierdo, limite_derecho - self.rect.width),
+        )
+        self.inicio_teletransporte = self.x
+        self.destino_teletransporte = destino_x
+        self.facing_left = destino_x < self.x
+        self.teletransportandose = True
+        self.teletransporte_frame = 0
+        self.ultimo_cambio_teletransporte = pygame.time.get_ticks()
+
+    def actualizar_teletransporte(self, limite_izquierdo, limite_derecho):
+        if not self.puede_teletransportarse:
+            return
+
+        tiempo_actual = pygame.time.get_ticks()
+        if not self.teletransportandose:
+            if tiempo_actual - self.ultimo_teletransporte >= self.cooldown_teletransporte:
+                self.iniciar_teletransporte(limite_izquierdo, limite_derecho)
+            return
+
+        if tiempo_actual - self.ultimo_cambio_teletransporte >= self.duracion_frame_teletransporte:
+            self.teletransporte_frame += 1
+            self.ultimo_cambio_teletransporte = tiempo_actual
+            progreso = self.teletransporte_frame / (len(self.frames_teletransporte) - 1)
+            self.x = self.inicio_teletransporte + (
+                self.destino_teletransporte - self.inicio_teletransporte
+            ) * progreso
+            self.rect.topleft = (round(self.x), self.y)
+            if self.teletransporte_frame >= len(self.frames_teletransporte) - 1:
+                self.x = self.destino_teletransporte
+                self.rect.topleft = (self.x, self.y)
+                self.teletransportandose = False
+                self.ultimo_teletransporte = tiempo_actual
+
+    def dibujar(self, ventana):
+        if self.teletransportandose:
+            frames = (
+                self.frames_teletransporte_facing_left
+                if self.facing_left
+                else self.frames_teletransporte
+            )
+            ventana.blit(frames[self.teletransporte_frame], (self.x, self.y))
+            return
+        super().dibujar(ventana)
 
     def atacar_con_fb(self, objetivo):
         if not self.frames_fb or self.atributos["vida"] <= 0:

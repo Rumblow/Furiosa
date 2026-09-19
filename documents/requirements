@@ -1,0 +1,70 @@
+Furiosa - requisitos de ejecucion
+================================
+
+Sistema recomendado
+-------------------
+- Windows 10 u 11 de 64 bits.
+- Python 3.13.x de 64 bits.
+- La carpeta assets debe conservarse junto a main.py.
+
+Dependencias para ejecutar desde Python
+---------------------------------------
+Instalar con:
+
+    py -m pip install -r documents/requirements
+
+Paquetes:
+
+    pygame==2.6.1
+
+Ejecutar el juego desde el codigo fuente
+-----------------------------------------
+Desde la carpeta raiz del proyecto:
+
+    py main.py
+
+El juego se abre en pantalla completa. La tecla Escape cierra el juego.
+
+Archivos necesarios
+-------------------
+- main.py
+- personajes.py
+- constantes.py
+- assets/imagenes/background/
+- assets/imagenes/boss/
+- assets/imagenes/claw_scratc_attack/
+- assets/imagenes/FBsprites/
+- assets/imagenes/swoosh/
+- assets/imagenes/teleport_atack_animation/
+- El resto de la carpeta assets, incluidos los iconos.
+
+Reconstruir el ejecutable
+--------------------------
+PyInstaller solo es necesario para generar un nuevo .exe. Instalarlo con:
+
+    py -m pip install pyinstaller==6.22.3
+
+Generar el ejecutable desde la carpeta raiz:
+
+    py -m PyInstaller --clean --noconfirm Furiosa.spec
+
+El resultado queda en:
+
+    dist/Furiosa.exe
+
+Ejecutar el ejecutable
+----------------------
+Abrir:
+
+    dist/Furiosa.exe
+
+El ejecutable incluye los recursos de assets mediante Furiosa.spec. No mover ni eliminar
+los archivos del proyecto mientras se ejecuta desde el codigo fuente.
+
+Controles
+---------
+- A/D o flechas izquierda/derecha: movimiento horizontal.
+- Espacio: salto.
+- Z: ataque Swoosh.
+- X: ataque Claw Scratch.
+- Escape: salir.

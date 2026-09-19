@@ -47,15 +47,50 @@ def cargar_animacion(prefijo, cantidad, carpeta):
     return normales, izquierdas
 
 
+def cargar_animacion_teletransporte(cantidad):
+    normales = []
+    izquierdas = []
+    for indice in range(1, cantidad + 1):
+        normal, izquierda = cargar_par(
+            f"A200-{indice}.png", "teleport_atack_animation"
+        )
+        normales.append(normal)
+        izquierdas.append(izquierda)
+    return normales, izquierdas
+
+
+def cargar_animacion_claw(cantidad):
+    normales = []
+    izquierdas = []
+    for indice in range(1, cantidad + 1):
+        nombre = f"CS{indice:03}.png"
+        ruta_izquierda = ruta_recurso(
+            "assets", "imagenes", "claw_scratc_attack", f"CS{indice:03}_facing_left.png"
+        )
+        if not os.path.exists(ruta_izquierda):
+            ruta_izquierda = ruta_recurso(
+                "assets", "imagenes", "claw_scratc_attack", f"CS{indice:03}_left_facing.png"
+            )
+        normal = pygame.image.load(
+            ruta_recurso("assets", "imagenes", "claw_scratc_attack", nombre)
+        ).convert_alpha()
+        izquierda = pygame.image.load(ruta_izquierda).convert_alpha()
+        normales.append(normal)
+        izquierdas.append(izquierda)
+    return normales, izquierdas
+
+
 player_image, player_image_left = cargar_par("rpgcritters2_araña.png")
 swoosh_frames, swoosh_frames_left = cargar_animacion("swoosh", 4, "swoosh")
 fb_frames, fb_frames_left = cargar_animacion("FB", 5, "FBsprites")
+teleport_frames, teleport_frames_left = cargar_animacion_teletransporte(4)
+claw_frames, claw_frames_left = cargar_animacion_claw(8)
 
 ESTANCIAS = [
     {"nombre": "Sala de Cobalto", "enemigo": "Brujo de Cobalto", "imagen": "rpgcritters2_wizzard.png", "carpeta": "", "vida": 1325},
     {"nombre": "Galeria de los Huesos", "enemigo": "Guardian de Huesos", "imagen": "boss_1.png", "carpeta": "boss", "vida": 900},
     {"nombre": "Cripta del Engendro", "enemigo": "Engendro de Huesos", "imagen": "boos_2.png", "carpeta": "boss", "vida": 1150},
-    {"nombre": "Nucleo de Ceniza", "enemigo": "Bestia de Ceniza", "imagen": "boss_3.png", "carpeta": "boss", "vida": 1700},
+    {"nombre": "Nucleo de Ceniza", "enemigo": "Bestia de Ceniza", "imagen": "boss_3.png", "carpeta": "boss", "vida": 1700, "teletransporte": True},
 ]
 
 maximos_atributos = {"vida": 100, "ataque": 100, "defensa": 100, "velocidad": 10}
@@ -71,10 +106,14 @@ def crear_partida(estancia):
         imagen_enemigo,
         imagen_facing_left=imagen_enemigo_left,
         vida=estancia["vida"],
+        puede_teletransportarse=estancia.get("teletransporte", False),
     )
     enemigo.facing_left = True
     jugador.configurar_swoosh(swoosh_frames, swoosh_frames_left)
+    jugador.configurar_claw(claw_frames, claw_frames_left)
     enemigo.configurar_ataque_fb(fb_frames, fb_frames_left)
+    if enemigo.puede_teletransportarse:
+        enemigo.configurar_teletransporte(teleport_frames, teleport_frames_left)
     return jugador, enemigo
 
 
@@ -133,6 +172,8 @@ while True:
                 saltar = True
             elif evento.key == pygame.K_z:
                 jugador.activar_swoosh()
+            elif evento.key == pygame.K_x:
+                jugador.activar_claw()
         elif estado == "combate" and evento.type == pygame.KEYUP:
             if evento.key in (pygame.K_a, pygame.K_LEFT):
                 mover_izquierda = False
@@ -145,12 +186,19 @@ while True:
         jugador.movimiento(mover_izquierda, mover_derecha, saltar, suelo)
         jugador.x = max(0, min(jugador.x, constantes.ANCHO_VENTANA - jugador.rect.width))
         jugador.rect.topleft = (jugador.x, jugador.y)
-        enemigo.movimiento(
-            constantes.ANCHO_VENTANA // 2,
+        if not enemigo.teletransportandose:
+            enemigo.movimiento(
+                constantes.ANCHO_VENTANA // 2,
+                constantes.ANCHO_VENTANA - 35,
+            )
+        enemigo.actualizar_teletransporte(
+            35,
             constantes.ANCHO_VENTANA - 35,
         )
         jugador.actualizar_swoosh()
+        jugador.actualizar_claw()
         jugador.atacar_con_swoosh(enemigo)
+        jugador.atacar_con_claw(enemigo)
         enemigo.atacar_con_fb(jugador)
         enemigo.actualizar_proyectiles(jugador, pygame.Rect(0, 0, constantes.ANCHO_VENTANA, suelo))
         if jugador.atributos["vida"] <= 0:
@@ -172,6 +220,7 @@ while True:
         ventana.blit(fondo_combate, (0, 0))
         jugador.dibujar(ventana)
         jugador.dibujar_swoosh(ventana)
+        jugador.dibujar_claw(ventana)
         enemigo.dibujar(ventana)
         enemigo.dibujar_proyectiles(ventana)
         ancho_bossbar = 520
