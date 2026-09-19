@@ -1,0 +1,10 @@
+El juego inicia.
+el juego detecta una partida
+el juego permite seleccionar/administrar o eliminar una partida
+el juego permite crear una partida
+el juego permite seleccionar el jugador
+el usuario puede introducir el nombre del villano
+el juego permite abrir una interfaz de combates
+el juego muestra el sprite de ambos personajes: jugador y villano
+el juego muestra el nombre de ambos personajes y sus atributos
+el juego permite combatir, abrir el inventario, guardar partida o salir
