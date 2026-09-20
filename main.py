@@ -1,10 +1,10 @@
 import os
 import sys
 import pygame
+from sound_manager import SoundManager
 
 import constantes
 from personajes import Enemigo, Orc, Soldier
-
 
 def ruta_recurso(*partes):
     carpeta_base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -12,10 +12,18 @@ def ruta_recurso(*partes):
 
 
 pygame.init()
+audio = SoundManager()
+audio.play_music(
+    ruta_recurso(
+        "assets",
+        "sounds",
+        "musica",
+        "Troye Sivan - One Of Your Girls (Official Instrumental).mp3",
+    ),
+    volume=0.4,
+)
 ZOOM_GENERAL = 0.85
-ZOOM_INTERFAZ = 1.0
-ZOOM_MINIMO = 0.7
-ZOOM_MAXIMO = 1.5
+ZOOM_COMBATE = 1.5
 constantes.ANCHO_VENTANA = 928
 constantes.ALTO_VENTANA = 793
 tamano_inicial = (
@@ -34,9 +42,21 @@ fondo_base = pygame.image.load(
 fondo_combate = pygame.transform.smoothscale(
     fondo_base, (constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA)
 )
-fuente_titulo = pygame.font.Font(None, 46)
-fuente = pygame.font.Font(None, 24)
-fuente_pequena = pygame.font.Font(None, 20)
+fondo_inicio = pygame.image.load(
+    ruta_recurso("assets", "imagenes", "background", "main_background.jpg")
+).convert()
+fuente_medieval = pygame.font.match_font("book antiqua") or pygame.font.match_font("papyrus")
+fuente_titulo = pygame.font.Font(fuente_medieval, 46)
+fuente = pygame.font.Font(fuente_medieval, 24)
+fuente_pequena = pygame.font.Font(fuente_medieval, 20)
+
+COLOR_PERGAMINO = (255, 226, 166)
+COLOR_TEXTO = (247, 238, 211)
+COLOR_MADERA = (63, 38, 29)
+COLOR_MADERA_CLARA = (108, 65, 38)
+COLOR_BRONCE = (184, 126, 51)
+COLOR_BRONCE_CLARO = (235, 184, 86)
+COLOR_DESHABILITADO = (86, 77, 67)
 
 
 def posicion_logica(posicion):
@@ -51,10 +71,11 @@ def posicion_logica(posicion):
 
 def rect_escena():
     ancho_pantalla, alto_pantalla = pantalla.get_size()
-    escala = min(
+    escala_base = min(
         ancho_pantalla / constantes.ANCHO_VENTANA,
         alto_pantalla / constantes.ALTO_VENTANA,
-    ) * ZOOM_INTERFAZ
+    )
+    escala = escala_base * (ZOOM_COMBATE if estado == "combate" else 1.0)
     ancho_escena = max(1, round(constantes.ANCHO_VENTANA * escala))
     alto_escena = max(1, round(constantes.ALTO_VENTANA * escala))
     return pygame.Rect(
@@ -76,30 +97,73 @@ def alternar_pantalla_completa():
         pantalla_completa = True
 
 
-def cambiar_zoom(cantidad):
-    global ZOOM_INTERFAZ
-    ZOOM_INTERFAZ = max(ZOOM_MINIMO, min(ZOOM_MAXIMO, ZOOM_INTERFAZ + cantidad))
+def dibujar_marco(rectangulo, color=COLOR_BRONCE):
+    pygame.draw.rect(pantalla, color, rectangulo, 2)
+    marco_interior = rectangulo.inflate(-8, -8)
+    if marco_interior.width > 0 and marco_interior.height > 0:
+        pygame.draw.rect(pantalla, COLOR_BRONCE_CLARO, marco_interior, 1)
 
 
-def rect_controles_zoom():
+def dibujar_boton_medieval(rectangulo, texto, activo=True):
+    color = COLOR_MADERA_CLARA if activo else COLOR_DESHABILITADO
+    pygame.draw.rect(pantalla, color, rectangulo)
+    dibujar_marco(rectangulo, COLOR_BRONCE if activo else (120, 106, 85))
+    superficie = fuente.render(texto, True, COLOR_TEXTO if activo else (157, 148, 131))
+    pantalla.blit(superficie, superficie.get_rect(center=rectangulo.center))
+
+
+def dibujar_panel_pixelado(rectangulo, fondo=(20, 16, 19)):
+    pygame.draw.rect(pantalla, fondo, rectangulo)
+    pygame.draw.rect(pantalla, (12, 10, 12), rectangulo.inflate(-4, -4), 3)
+    pygame.draw.line(pantalla, (157, 111, 55), rectangulo.topleft, (rectangulo.right - 5, rectangulo.top), 3)
+    pygame.draw.line(pantalla, (157, 111, 55), rectangulo.topleft, (rectangulo.left, rectangulo.bottom - 5), 3)
+    pygame.draw.line(pantalla, (74, 48, 36), (rectangulo.left + 5, rectangulo.bottom - 2), (rectangulo.right, rectangulo.bottom - 2), 3)
+    pygame.draw.line(pantalla, (74, 48, 36), (rectangulo.right - 2, rectangulo.top + 5), (rectangulo.right - 2, rectangulo.bottom), 3)
+
+
+def dibujar_barra_segmentada(rectangulo, porcentaje, color, segmentos=12):
+    pygame.draw.rect(pantalla, (12, 10, 12), rectangulo)
+    pygame.draw.rect(pantalla, (90, 63, 42), rectangulo, 2)
+    separacion = 3
+    ancho_segmento = max(1, (rectangulo.width - separacion * (segmentos - 1)) // segmentos)
+    segmentos_llenos = round(max(0, min(1, porcentaje)) * segmentos)
+    for indice in range(segmentos):
+        x_segmento = rectangulo.left + indice * (ancho_segmento + separacion)
+        color_segmento = color if indice < segmentos_llenos else (37, 30, 29)
+        pygame.draw.rect(
+            pantalla,
+            color_segmento,
+            (x_segmento, rectangulo.top + 3, ancho_segmento, rectangulo.height - 6),
+        )
+
+
+def rect_botones_inicio():
     ancho, alto = pantalla.get_size()
-    return (
-        pygame.Rect(ancho - 96, alto - 42, 34, 30),
-        pygame.Rect(ancho - 56, alto - 42, 34, 30),
-    )
+    ancho_boton = min(330, max(220, ancho - 80))
+    alto_boton = 52
+    separacion = 14
+    alto_grupo = alto_boton * 3 + separacion * 2
+    x_boton = max(42, round(ancho * 0.08))
+    y_inicial = max(140, alto - alto_grupo - 78)
+    return [
+        pygame.Rect(x_boton, y_inicial + indice * (alto_boton + separacion), ancho_boton, alto_boton)
+        for indice in range(3)
+    ]
 
 
-def dibujar_controles_zoom():
-    boton_menos, boton_mas = rect_controles_zoom()
-    for rectangulo, texto in ((boton_menos, "-"), (boton_mas, "+")):
-        pygame.draw.rect(pantalla, (65, 75, 90), rectangulo)
-        pygame.draw.rect(pantalla, (235, 235, 235), rectangulo, 2)
-        superficie = fuente.render(texto, True, (255, 255, 255))
-        pantalla.blit(superficie, superficie.get_rect(center=rectangulo.center))
-    texto_zoom = fuente_pequena.render(
-        f"Zoom {round(ZOOM_INTERFAZ * 100)}%", True, (255, 255, 255)
-    )
-    pantalla.blit(texto_zoom, (boton_menos.left - texto_zoom.get_width() - 10, boton_menos.top + 7))
+def dibujar_menu_inicio():
+    if estado != "inicio":
+        return
+    ancho, alto = pantalla.get_size()
+    capa = pygame.Surface((ancho, alto), pygame.SRCALPHA)
+    capa.fill((24, 12, 8, 75))
+    pantalla.blit(capa, (0, 0))
+    botones = rect_botones_inicio()
+    panel = pygame.Rect(botones[0].left - 30, botones[0].top - 30, botones[0].width + 60, botones[-1].bottom - botones[0].top + 60)
+    pygame.draw.rect(pantalla, (34, 22, 18, 205), panel)
+    dibujar_marco(panel)
+    for indice, (boton, texto) in enumerate(zip(botones, ("Jugar", "Opciones", "Salir"))):
+        dibujar_boton_medieval(boton, texto, activo=indice != 1)
 
 
 def dibujar_hud_fijo():
@@ -109,50 +173,52 @@ def dibujar_hud_fijo():
     ancho_pantalla, _ = pantalla.get_size()
     ancho_bossbar = min(520, max(220, ancho_pantalla - 40))
     x_bossbar = (ancho_pantalla - ancho_bossbar) // 2
-    pygame.draw.rect(pantalla, (35, 35, 35), (x_bossbar, 15, ancho_bossbar, 30))
+    bossbar_rect = pygame.Rect(x_bossbar, 12, ancho_bossbar, 38)
+    dibujar_panel_pixelado(bossbar_rect, (29, 20, 22))
     porcentaje_vida = max(0, enemigo.atributos["vida"] / enemigo.vida_maxima)
-    pygame.draw.rect(
-        pantalla,
-        (190, 35, 45),
-        (x_bossbar + 2, 17, int((ancho_bossbar - 4) * porcentaje_vida), 26),
+    dibujar_barra_segmentada(
+        pygame.Rect(x_bossbar + 8, 18, ancho_bossbar - 16, 17),
+        porcentaje_vida,
+        (190, 45, 50),
+        segmentos=max(10, ancho_bossbar // 34),
     )
     texto_bossbar = fuente_pequena.render(
         f"{estancia_seleccionada['enemigo']}  {enemigo.atributos['vida']} / {enemigo.vida_maxima}",
         True,
-        (255, 254, 254),
+        COLOR_TEXTO,
     )
     pantalla.blit(
         texto_bossbar,
-        texto_bossbar.get_rect(center=(ancho_pantalla // 2, 30)),
+        texto_bossbar.get_rect(center=(ancho_pantalla // 2, 22)),
     )
 
-    panel = pygame.Surface((238, 270), pygame.SRCALPHA)
-    panel.fill((0, 0, 0, 190))
-    pantalla.blit(panel, (18, 68))
+    panel_rect = pygame.Rect(18, 68, 238, 270)
+    dibujar_panel_pixelado(panel_rect, (22, 18, 21))
     for indice, (nombre, valor) in enumerate(jugador.atributos.items()):
         x_barra = 32
         y_atributo = 84 + indice * 58
         porcentaje = min(1, max(0, valor / maximos_atributos[nombre]))
         pantalla.blit(
-            fuente_pequena.render(f"{nombre.capitalize()}: {valor}", True, (255, 255, 255)),
+            fuente_pequena.render(f"{nombre.capitalize()}  {valor}", True, COLOR_TEXTO),
             (x_barra, y_atributo),
         )
-        pygame.draw.rect(pantalla, (45, 45, 45), (x_barra, y_atributo + 25, 205, 16))
-        pygame.draw.rect(
-            pantalla,
-            (55, 190, 95) if nombre == "vida" else (70, 145, 210),
-            (x_barra + 2, y_atributo + 27, int(201 * porcentaje), 12),
+        dibujar_barra_segmentada(
+            pygame.Rect(x_barra, y_atributo + 25, 205, 16),
+            porcentaje,
+            (65, 192, 92) if nombre == "vida" else (70, 148, 202),
+            segmentos=10,
         )
 
 
 def rect_botones_finales():
     ancho, alto = pantalla.get_size()
-    ancho_boton = min(315, max(140, (ancho - 55) // 2))
+    ancho_boton = min(270, max(120, (ancho - 64) // 3))
     y_boton = min(alto - 80, alto // 2 + 105)
     x_centro = ancho // 2
     return (
-        pygame.Rect(x_centro - ancho_boton - 8, y_boton, ancho_boton, 55),
-        pygame.Rect(x_centro + 8, y_boton, ancho_boton, 55),
+        pygame.Rect(x_centro - ancho_boton - 8 - ancho_boton // 2, y_boton, ancho_boton, 55),
+        pygame.Rect(x_centro - ancho_boton // 2, y_boton, ancho_boton, 55),
+        pygame.Rect(x_centro + 8 + ancho_boton // 2, y_boton, ancho_boton, 55),
     )
 
 
@@ -161,20 +227,17 @@ def dibujar_pantalla_final_fija():
         return
     ancho, alto = pantalla.get_size()
     capa = pygame.Surface((ancho, alto), pygame.SRCALPHA)
-    capa.fill((0, 0, 0, 190))
+    capa.fill((24, 12, 8, 205))
     pantalla.blit(capa, (0, 0))
     mensaje = "Victoria!" if estado_final == "victoria" else "Derrota!"
-    titulo_final = fuente_titulo.render(mensaje, True, (255, 255, 255))
+    titulo_final = fuente_titulo.render(mensaje, True, COLOR_PERGAMINO)
     pantalla.blit(titulo_final, titulo_final.get_rect(center=(ancho // 2, alto // 2 - 55)))
-    boton_repetir_fijo, boton_menu_fijo = rect_botones_finales()
-    for rectangulo, texto, color in (
-        (boton_repetir_fijo, "Luchar de nuevo", (45, 125, 70)),
-        (boton_menu_fijo, "Elegir otra estancia", (70, 90, 125)),
+    botones_finales = rect_botones_finales()
+    for rectangulo, texto in zip(
+        botones_finales,
+        ("Luchar de nuevo", "Elegir otra estancia", "Menu principal"),
     ):
-        pygame.draw.rect(pantalla, color, rectangulo)
-        pygame.draw.rect(pantalla, (235, 235, 235), rectangulo, 2)
-        superficie = fuente.render(texto, True, (255, 255, 255))
-        pantalla.blit(superficie, superficie.get_rect(center=rectangulo.center))
+        dibujar_boton_medieval(rectangulo, texto)
 
 
 def rect_botones_pausa():
@@ -186,7 +249,7 @@ def rect_botones_pausa():
     y_inicial = max(90, alto // 2 - 150)
     return [
         pygame.Rect(x_boton, y_inicial + indice * (alto_boton + separacion), ancho_boton, alto_boton)
-        for indice in range(5)
+        for indice in range(6)
     ]
 
 
@@ -195,25 +258,25 @@ def dibujar_menu_pausa():
         return
     ancho, alto = pantalla.get_size()
     capa = pygame.Surface((ancho, alto), pygame.SRCALPHA)
-    capa.fill((8, 12, 18, 210))
+    capa.fill((24, 12, 8, 210))
     pantalla.blit(capa, (0, 0))
-    titulo = fuente_titulo.render("Juego en pausa", True, (255, 244, 210))
+    botones = rect_botones_pausa()
+    panel = pygame.Rect(botones[0].left - 30, botones[0].top - 72, botones[0].width + 60, botones[-1].bottom - botones[0].top + 102)
+    pygame.draw.rect(pantalla, (34, 22, 18, 220), panel)
+    dibujar_marco(panel)
+    titulo = fuente_titulo.render("Juego en pausa", True, COLOR_PERGAMINO)
     pantalla.blit(titulo, titulo.get_rect(center=(ancho // 2, max(45, alto // 2 - 205))))
     textos = (
         "Regresar a la batalla",
         "Guardar partida",
         "Configuracion",
         "Cambiar de instancia",
+        "Menu principal",
         "Salir del juego",
     )
-    botones = rect_botones_pausa()
     for indice, (rectangulo, texto) in enumerate(zip(botones, textos)):
-        habilitado = indice in (0, 3, 4)
-        color = (48, 94, 112) if habilitado else (55, 55, 55)
-        pygame.draw.rect(pantalla, color, rectangulo)
-        pygame.draw.rect(pantalla, (235, 235, 235), rectangulo, 2)
-        superficie = fuente.render(texto, True, (255, 255, 255) if habilitado else (160, 160, 160))
-        pantalla.blit(superficie, superficie.get_rect(center=rectangulo.center))
+        habilitado = indice in (0, 3, 4, 5)
+        dibujar_boton_medieval(rectangulo, texto, activo=habilitado)
 
 
 def rect_botones_estancias_fijos():
@@ -229,28 +292,98 @@ def rect_botones_estancias_fijos():
     ]
 
 
+def rect_boton_menu_principal():
+    ancho, alto = pantalla.get_size()
+    ancho_boton = min(300, max(220, ancho - 80))
+    return pygame.Rect(
+        (ancho - ancho_boton) // 2,
+        alto - 68,
+        ancho_boton,
+        44,
+    )
+
+
+def rect_botones_personajes():
+    ancho, alto = pantalla.get_size()
+    ancho_tarjeta = min(300, max(210, (ancho - 90) // 2))
+    alto_tarjeta = min(320, max(245, alto - 260))
+    separacion = 24
+    ancho_total = ancho_tarjeta * 2 + separacion
+    x_inicial = (ancho - ancho_total) // 2
+    y_inicial = 130
+    return (
+        pygame.Rect(x_inicial, y_inicial, ancho_tarjeta, alto_tarjeta),
+        pygame.Rect(x_inicial + ancho_tarjeta + separacion, y_inicial, ancho_tarjeta, alto_tarjeta),
+    )
+
+
+def dibujar_selector_personaje_fijo():
+    if estado != "personaje":
+        return
+    ancho, alto = pantalla.get_size()
+    pantalla.fill((38, 24, 18))
+    tarjetas = rect_botones_personajes()
+    panel = pygame.Rect(
+        tarjetas[0].left - 28,
+        tarjetas[0].top - 78,
+        tarjetas[-1].right - tarjetas[0].left + 56,
+        tarjetas[0].height + 120,
+    )
+    pygame.draw.rect(pantalla, (49, 31, 23), panel)
+    dibujar_marco(panel)
+    titulo = fuente_titulo.render("Elige a tu heroe", True, COLOR_PERGAMINO)
+    pantalla.blit(titulo, titulo.get_rect(center=(ancho // 2, 50)))
+    subtitulo = fuente.render("Selecciona un guerrero antes de entrar en combate", True, (214, 190, 151))
+    pantalla.blit(subtitulo, subtitulo.get_rect(center=(ancho // 2, 83)))
+
+    for tarjeta, imagen, nombre, descripcion in (
+        (tarjetas[0], soldier_icon, "Soldier", "Arquero equilibrado"),
+        (tarjetas[1], terrible_knight_icon, "Terrible Knight", "Caballero de espada"),
+    ):
+        pygame.draw.rect(pantalla, COLOR_MADERA_CLARA, tarjeta)
+        dibujar_marco(tarjeta)
+        imagen_maximo = min(180, tarjeta.width - 55)
+        escala = min(imagen_maximo / imagen.get_width(), 185 / imagen.get_height())
+        imagen_mostrada = pygame.transform.scale(
+            imagen,
+            (max(1, round(imagen.get_width() * escala)), max(1, round(imagen.get_height() * escala))),
+        )
+        pantalla.blit(
+            imagen_mostrada,
+            imagen_mostrada.get_rect(center=(tarjeta.centerx, tarjeta.top + tarjeta.height // 2 - 20)),
+        )
+        texto_nombre = fuente.render(nombre, True, COLOR_TEXTO)
+        pantalla.blit(texto_nombre, texto_nombre.get_rect(center=(tarjeta.centerx, tarjeta.bottom - 54)))
+        texto_descripcion = fuente_pequena.render(descripcion, True, (214, 190, 151))
+        pantalla.blit(texto_descripcion, texto_descripcion.get_rect(center=(tarjeta.centerx, tarjeta.bottom - 25)))
+    dibujar_boton_medieval(rect_boton_menu_principal(), "Menu principal")
+
+
 def dibujar_selector_estancias_fijo():
     if estado != "seleccion":
         return
     ancho, alto = pantalla.get_size()
-    pantalla.fill((24, 27, 34))
-    titulo = fuente_titulo.render("Selecciona una estancia", True, (255, 244, 210))
+    pantalla.fill((38, 24, 18))
+    botones = rect_botones_estancias_fijos()
+    panel = pygame.Rect(botones[0].left - 30, max(18, botones[0].top - 105), botones[0].width + 60, botones[-1].bottom - max(18, botones[0].top - 105) + 30)
+    pygame.draw.rect(pantalla, (49, 31, 23), panel)
+    dibujar_marco(panel)
+    titulo = fuente_titulo.render("Elige tu estancia", True, COLOR_PERGAMINO)
     pantalla.blit(titulo, titulo.get_rect(center=(ancho // 2, 55)))
     subtitulo = fuente.render(
-        "Elige contra que enemigo quieres luchar", True, (190, 198, 210)
+        "Elige contra que enemigo quieres luchar", True, (214, 190, 151)
     )
     pantalla.blit(subtitulo, subtitulo.get_rect(center=(ancho // 2, 90)))
-    for indice, (boton, estancia) in enumerate(
-        zip(rect_botones_estancias_fijos(), ESTANCIAS)
-    ):
-        pygame.draw.rect(pantalla, (48, 94, 112), boton)
-        pygame.draw.rect(pantalla, (235, 235, 235), boton, 2)
+    for indice, (boton, estancia) in enumerate(zip(botones, ESTANCIAS)):
+        pygame.draw.rect(pantalla, COLOR_MADERA_CLARA, boton)
+        dibujar_marco(boton)
         texto = fuente.render(
             f"{indice + 1}. {estancia['nombre']}  |  {estancia['enemigo']}",
             True,
-            (255, 255, 255),
+            COLOR_TEXTO,
         )
         pantalla.blit(texto, texto.get_rect(center=boton.center))
+    dibujar_boton_medieval(rect_boton_menu_principal(), "Menu principal")
 
 
 def cargar_par(imagen, carpeta=""):
@@ -325,6 +458,36 @@ def cargar_animaciones_personaje(personaje, estados):
     }
 
 
+def cargar_frames_terrible_knight(carpeta):
+    ruta_carpeta = ruta_recurso("assets", "imagenes", "Terrible Knight", "Sprites", carpeta)
+    archivos = [
+        archivo
+        for archivo in os.listdir(ruta_carpeta)
+        if archivo.lower().endswith(".png")
+    ]
+    archivos.sort(key=lambda archivo: int("".join(filter(str.isdigit, archivo)) or 0))
+    return [
+        pygame.image.load(os.path.join(ruta_carpeta, archivo)).convert_alpha()
+        for archivo in archivos
+    ]
+
+
+def cargar_animaciones_terrible_knight():
+    return {
+        "idle": cargar_frames_terrible_knight("Idle"),
+        "walk": cargar_frames_terrible_knight("Run"),
+        "hurt": cargar_frames_terrible_knight("Hurt"),
+    }
+
+
+def cargar_ataques_terrible_knight():
+    return {
+        1: cargar_frames_terrible_knight("AttackSide"),
+        2: cargar_frames_terrible_knight("AttackUp"),
+        3: cargar_frames_terrible_knight("AttackCrouch"),
+    }
+
+
 player_image, player_image_left = cargar_par("rpgcritters2_araña.png")
 swoosh_frames, swoosh_frames_left = cargar_animacion("swoosh", 4, "swoosh")
 fb_frames, fb_frames_left = cargar_animacion("FB", 5, "FBsprites")
@@ -357,6 +520,18 @@ orc_attacks = {
     1: cargar_animacion_personaje("Orc", "Orc-Attack01-frames", "Orc-Attack01", 6),
     2: cargar_animacion_personaje("Orc", "Orc-Attack02-frames", "Orc-Attack02", 6),
 }
+terrible_knight_animations = cargar_animaciones_terrible_knight()
+terrible_knight_attacks = cargar_ataques_terrible_knight()
+terrible_knight_image = terrible_knight_animations["idle"][0]
+terrible_knight_dagger = pygame.image.load(
+    ruta_recurso("assets", "imagenes", "Terrible Knight", "Projectiles", "dagger.png")
+).convert_alpha()
+soldier_icon = pygame.image.load(
+    ruta_recurso("assets", "imagenes", "players_icons", "icon1.jpg")
+).convert()
+terrible_knight_icon = pygame.image.load(
+    ruta_recurso("assets", "imagenes", "players_icons", "icon2.jpg")
+).convert()
 
 ESTANCIAS = [
     {"nombre": "Sala de Cobalto", "enemigo": "Brujo de Cobalto", "imagen": "rpgcritters2_wizzard.png", "carpeta": "", "vida": 260, "ataque": 14, "defensa": 8, "velocidad_enemigo": 1.0, "patrulla": (0.68, 0.90)},
@@ -370,15 +545,32 @@ maximos_atributos = {"vida": 140, "ataque": 100, "defensa": 100, "velocidad": 10
 suelo = constantes.ALTO_VENTANA - 55
 
 
-def crear_partida(estancia):
-    jugador = Soldier(
-        70,
-        suelo - soldier_image.get_height(),
-        soldier_image,
-        vida=140,
-        ataque=18,
-        defensa=8,
-    )
+def crear_partida(estancia, personaje_seleccionado):
+    if personaje_seleccionado == "terrible_knight":
+        jugador = Soldier(
+            70,
+            suelo - terrible_knight_image.get_height(),
+            terrible_knight_image,
+            vida=150,
+            ataque=20,
+            defensa=10,
+            velocidad=4.5,
+        )
+        animaciones_jugador = terrible_knight_animations
+        ataques_jugador = terrible_knight_attacks
+        proyectil_jugador = terrible_knight_dagger
+    else:
+        jugador = Soldier(
+            70,
+            suelo - soldier_image.get_height(),
+            soldier_image,
+            vida=140,
+            ataque=18,
+            defensa=8,
+        )
+        animaciones_jugador = soldier_animations
+        ataques_jugador = soldier_attacks
+        proyectil_jugador = arrow_image
     if estancia.get("orc"):
         enemigo = Orc(
             constantes.ANCHO_VENTANA - orc_image.get_width() - 80,
@@ -405,9 +597,9 @@ def crear_partida(estancia):
             puede_teletransportarse=estancia.get("teletransporte", False),
         )
     enemigo.facing_left = True
-    jugador.configurar_animaciones(soldier_animations)
-    jugador.configurar_ataques(soldier_attacks)
-    jugador.configurar_arrow([arrow_image])
+    jugador.configurar_animaciones(animaciones_jugador)
+    jugador.configurar_ataques(ataques_jugador)
+    jugador.configurar_arrow([proyectil_jugador])
     if not estancia.get("orc"):
         enemigo.configurar_ataque_fb(fb_frames, fb_frames_left)
     if enemigo.puede_teletransportarse:
@@ -427,11 +619,10 @@ x_boton = (constantes.ANCHO_VENTANA - ancho_boton) // 2
 botones_estancias = [pygame.Rect(x_boton, 155 + indice * 105, ancho_boton, 72) for indice in range(len(ESTANCIAS))]
 boton_repetir = pygame.Rect(constantes.ANCHO_VENTANA // 2 - 330, 420, 315, 55)
 boton_menu = pygame.Rect(constantes.ANCHO_VENTANA // 2 + 15, 420, 315, 55)
-boton_zoom_menos = pygame.Rect(constantes.ANCHO_VENTANA - 118, constantes.ALTO_VENTANA - 48, 36, 30)
-boton_zoom_mas = pygame.Rect(constantes.ANCHO_VENTANA - 76, constantes.ALTO_VENTANA - 48, 36, 30)
-estado = "seleccion"
+estado = "inicio"
 pausa_activa = False
 estancia_seleccionada = None
+personaje_seleccionado = "soldier"
 jugador = None
 enemigo = None
 estado_final = None
@@ -462,12 +653,14 @@ while True:
                         saltar = False
                 continue
         if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-            boton_menos, boton_mas = rect_controles_zoom()
-            if boton_menos.collidepoint(evento.pos):
-                cambiar_zoom(-0.1)
-                continue
-            if boton_mas.collidepoint(evento.pos):
-                cambiar_zoom(0.1)
+            if estado == "inicio":
+                botones_inicio = rect_botones_inicio()
+                if botones_inicio[0].collidepoint(evento.pos):
+                    estado = "personaje"
+                    continue
+                if botones_inicio[2].collidepoint(evento.pos):
+                    pygame.quit()
+                    sys.exit()
                 continue
             if pausa_activa:
                 botones_pausa = rect_botones_pausa()
@@ -480,15 +673,46 @@ while True:
                     estado_final = None
                     continue
                 if botones_pausa[4].collidepoint(evento.pos):
+                    pausa_activa = False
+                    estado = "inicio"
+                    estado_final = None
+                    estancia_seleccionada = None
+                    jugador = None
+                    enemigo = None
+                    mover_izquierda = False
+                    mover_derecha = False
+                    saltar = False
+                    continue
+                if botones_pausa[5].collidepoint(evento.pos):
                     pygame.quit()
                     sys.exit()
                 if botones_pausa[1].collidepoint(evento.pos) or botones_pausa[2].collidepoint(evento.pos):
                     continue
+        if estado == "personaje" and evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+            if rect_boton_menu_principal().collidepoint(evento.pos):
+                estado = "inicio"
+                continue
+            tarjetas = rect_botones_personajes()
+            if tarjetas[0].collidepoint(evento.pos):
+                personaje_seleccionado = "soldier"
+                estado = "seleccion"
+                continue
+            if tarjetas[1].collidepoint(evento.pos):
+                personaje_seleccionado = "terrible_knight"
+                estado = "seleccion"
+                continue
         if estado == "seleccion" and evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+            if rect_boton_menu_principal().collidepoint(evento.pos):
+                estado = "inicio"
+                estado_final = None
+                estancia_seleccionada = None
+                jugador = None
+                enemigo = None
+                continue
             for indice, boton in enumerate(rect_botones_estancias_fijos()):
                 if boton.collidepoint(evento.pos):
                     estancia_seleccionada = ESTANCIAS[indice]
-                    jugador, enemigo = crear_partida(estancia_seleccionada)
+                    jugador, enemigo = crear_partida(estancia_seleccionada, personaje_seleccionado)
                     estado = "combate"
                     estado_final = None
                     continue
@@ -497,35 +721,36 @@ while True:
             for indice, boton in enumerate(botones_estancias):
                 if boton.collidepoint(posicion):
                     estancia_seleccionada = ESTANCIAS[indice]
-                    jugador, enemigo = crear_partida(estancia_seleccionada)
+                    jugador, enemigo = crear_partida(estancia_seleccionada, personaje_seleccionado)
                     estado = "combate"
                     estado_final = None
         elif estado == "final" and evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
-            boton_repetir_fijo, boton_menu_fijo = rect_botones_finales()
-            if boton_repetir_fijo.collidepoint(evento.pos):
-                jugador, enemigo = crear_partida(estancia_seleccionada)
+            botones_finales = rect_botones_finales()
+            if botones_finales[0].collidepoint(evento.pos):
+                jugador, enemigo = crear_partida(estancia_seleccionada, personaje_seleccionado)
                 estado = "combate"
                 estado_final = None
                 continue
-            if boton_menu_fijo.collidepoint(evento.pos):
+            if botones_finales[1].collidepoint(evento.pos):
                 estado = "seleccion"
                 estado_final = None
                 continue
+            if botones_finales[2].collidepoint(evento.pos):
+                estado = "inicio"
+                estado_final = None
+                estancia_seleccionada = None
+                jugador = None
+                enemigo = None
+                continue
             posicion = posicion_logica(evento.pos)
             if boton_repetir.collidepoint(posicion):
-                jugador, enemigo = crear_partida(estancia_seleccionada)
+                jugador, enemigo = crear_partida(estancia_seleccionada, personaje_seleccionado)
                 estado = "combate"
                 estado_final = None
             elif boton_menu.collidepoint(posicion):
                 estado = "seleccion"
                 estado_final = None
         elif estado == "combate" and not pausa_activa and evento.type == pygame.KEYDOWN:
-            if evento.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
-                cambiar_zoom(-0.1)
-                continue
-            if evento.key in (pygame.K_EQUALS, pygame.K_KP_PLUS):
-                cambiar_zoom(0.1)
-                continue
             if evento.key in (pygame.K_a, pygame.K_LEFT):
                 mover_izquierda = True
             elif evento.key in (pygame.K_d, pygame.K_RIGHT):
@@ -590,7 +815,21 @@ while True:
             estado = "final"
 
     ventana.fill((24, 27, 34))
-    if estado == "seleccion":
+    if estado == "inicio":
+        ventana.blit(
+            pygame.transform.smoothscale(
+                fondo_inicio, (constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA)
+            ),
+            (0, 0),
+        )
+    elif estado == "personaje":
+        ventana.blit(
+            pygame.transform.smoothscale(
+                fondo_inicio, (constantes.ANCHO_VENTANA, constantes.ALTO_VENTANA)
+            ),
+            (0, 0),
+        )
+    elif estado == "seleccion":
         titulo = fuente_titulo.render("Selecciona una estancia", True, (255, 244, 210))
         ventana.blit(titulo, titulo.get_rect(center=(constantes.ANCHO_VENTANA // 2, 75)))
         subtitulo = fuente.render("Elige contra que enemigo quieres luchar", True, (190, 198, 210))
@@ -606,14 +845,40 @@ while True:
     tamano_pantalla = pantalla.get_size()
     if tamano_pantalla[0] > 0 and tamano_pantalla[1] > 0:
         destino = rect_escena()
-        pantalla.fill((0, 0, 0))
-        pantalla.blit(
-            pygame.transform.scale(ventana, destino.size),
-            destino,
-        )
+        escena_escalada = pygame.transform.scale(ventana, destino.size)
+        if estado == "inicio":
+            pantalla.fill(escena_escalada.get_at((0, 0)))
+            if destino.top > 0:
+                borde_superior = escena_escalada.subsurface((0, 0, destino.width, 1))
+                pantalla.blit(pygame.transform.scale(borde_superior, (tamano_pantalla[0], destino.top)), (0, 0))
+            if destino.bottom < tamano_pantalla[1]:
+                borde_inferior = escena_escalada.subsurface((0, destino.height - 1, destino.width, 1))
+                pantalla.blit(
+                    pygame.transform.scale(
+                        borde_inferior,
+                        (tamano_pantalla[0], tamano_pantalla[1] - destino.bottom),
+                    ),
+                    (0, destino.bottom),
+                )
+            if destino.left > 0:
+                borde_izquierdo = escena_escalada.subsurface((0, 0, 1, destino.height))
+                pantalla.blit(pygame.transform.scale(borde_izquierdo, (destino.left, destino.height)), (0, destino.top))
+            if destino.right < tamano_pantalla[0]:
+                borde_derecho = escena_escalada.subsurface((destino.width - 1, 0, 1, destino.height))
+                pantalla.blit(
+                    pygame.transform.scale(
+                        borde_derecho,
+                        (tamano_pantalla[0] - destino.right, destino.height),
+                    ),
+                    (destino.right, destino.top),
+                )
+        else:
+            pantalla.fill((0, 0, 0))
+        pantalla.blit(escena_escalada, destino)
+        dibujar_menu_inicio()
+        dibujar_selector_personaje_fijo()
         dibujar_selector_estancias_fijo()
         dibujar_hud_fijo()
         dibujar_pantalla_final_fija()
         dibujar_menu_pausa()
-        dibujar_controles_zoom()
         pygame.display.flip()

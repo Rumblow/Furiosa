@@ -375,9 +375,10 @@ class Soldier(Personaje):
             return
         siguiente_frame = self.frame_ataque + 1
         if siguiente_frame >= len(self.ataques_soldier[self.ataque_activo]):
-            self.frame_ataque = len(self.ataques_soldier[self.ataque_activo]) - 1
-            self.ataque_animacion_terminada = True
-            if self.ataque_activo != 3 or self.ataque_3_disparado:
+            if not self.ataque_animacion_terminada:
+                self.frame_ataque = len(self.ataques_soldier[self.ataque_activo]) - 1
+                self.ataque_animacion_terminada = True
+            elif self.ataque_activo != 3 or self.ataque_3_disparado:
                 self.ataque_activo = None
         else:
             self.frame_ataque = siguiente_frame
