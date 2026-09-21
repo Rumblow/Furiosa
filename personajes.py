@@ -685,6 +685,122 @@ class Enemigo(Personaje):
         self.rect.topleft = (self.x, self.y)
 
 
+class Demon(Enemigo):
+    def __init__(
+        self,
+        x,
+        y,
+        animacion_idle,
+        ataques,
+        vida=520,
+        ataque=18,
+        defensa=7,
+    ):
+        super().__init__(
+            x,
+            y,
+            animacion_idle[0],
+            imagen_facing_left=pygame.transform.flip(animacion_idle[0], True, False),
+            vida=vida,
+            ataque=ataque,
+            defensa=defensa,
+            velocidad=0,
+        )
+        self.animacion_idle = animacion_idle
+        self.animacion_idle_facing_left = [
+            pygame.transform.flip(frame, True, False) for frame in animacion_idle
+        ]
+        self.ataques_demon = ataques
+        self.ataques_demon_facing_left = {
+            numero: [pygame.transform.flip(frame, True, False) for frame in frames]
+            for numero, frames in ataques.items()
+        }
+        self.frame_idle = 0
+        self.ultimo_cambio_idle = pygame.time.get_ticks()
+        self.ataque_demon_activo = None
+        self.frame_ataque_demon = 0
+        self.ultimo_cambio_ataque_demon = 0
+        self.ultimo_uso_ataque_demon = {numero: -2000 for numero in ataques}
+        self.cooldown_ataque_demon = {1: 1800, 2: 3200}
+        self.ataque_demon_ya_golpeo = False
+        self.distancia_ataque_demon = 360
+
+    def movimiento(self, limite_izquierdo, limite_derecho):
+        self.rect.topleft = (round(self.x), round(self.y))
+
+    def actualizar_idle(self):
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.ultimo_cambio_idle >= 120:
+            self.frame_idle = (self.frame_idle + 1) % len(self.animacion_idle)
+            self.ultimo_cambio_idle = tiempo_actual
+
+    def actualizar_ataque_demon(self):
+        if self.ataque_demon_activo is None:
+            return
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - self.ultimo_cambio_ataque_demon < 85:
+            return
+        self.frame_ataque_demon += 1
+        self.ultimo_cambio_ataque_demon = tiempo_actual
+        if self.frame_ataque_demon >= len(self.ataques_demon[self.ataque_demon_activo]):
+            self.ataque_demon_activo = None
+
+    def actualizar_orientacion(self, objetivo):
+        self.facing_left = objetivo.rect.centerx > self.rect.centerx
+
+    def atacar_con_demon(self, objetivo):
+        if self.atributos["vida"] <= 0:
+            return
+        self.actualizar_orientacion(objetivo)
+        distancia = math.hypot(
+            objetivo.rect.centerx - self.rect.centerx,
+            objetivo.rect.centery - self.rect.centery,
+        )
+        if distancia > self.distancia_ataque_demon:
+            self.ataque_demon_activo = None
+            return
+        tiempo_actual = pygame.time.get_ticks()
+        if self.ataque_demon_activo is None:
+            numero = 1 if tiempo_actual % 2 else 2
+            if (
+                numero not in self.ataques_demon
+                or tiempo_actual - self.ultimo_uso_ataque_demon[numero]
+                < self.cooldown_ataque_demon[numero]
+            ):
+                return
+            self.ataque_demon_activo = numero
+            self.frame_ataque_demon = 0
+            self.ultimo_cambio_ataque_demon = tiempo_actual
+            self.ultimo_uso_ataque_demon[numero] = tiempo_actual
+            self.ataque_demon_ya_golpeo = False
+            return
+
+        if self.ataque_demon_ya_golpeo:
+            return
+        if self.frame_ataque_demon >= len(self.ataques_demon[self.ataque_demon_activo]) // 2:
+            objetivo.recibir_dano(self.atributos["ataque"])
+            self.ataque_demon_ya_golpeo = True
+
+    def dibujar(self, ventana):
+        if self.ataque_demon_activo is not None:
+            animacion = (
+                self.ataques_demon_facing_left[self.ataque_demon_activo]
+                if self.facing_left
+                else self.ataques_demon[self.ataque_demon_activo]
+            )
+            imagen = animacion[min(self.frame_ataque_demon, len(animacion) - 1)]
+        else:
+            self.actualizar_idle()
+            animacion = (
+                self.animacion_idle_facing_left
+                if self.facing_left
+                else self.animacion_idle
+            )
+            imagen = animacion[self.frame_idle]
+        rect_imagen = imagen.get_rect(midbottom=(self.rect.centerx, self.rect.bottom))
+        ventana.blit(imagen, rect_imagen)
+
+
 class Orc(Enemigo):
     def __init__(
         self,

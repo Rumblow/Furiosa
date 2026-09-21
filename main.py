@@ -4,7 +4,7 @@ import pygame
 from sound_manager import SoundManager
 
 import constantes
-from personajes import Enemigo, Orc, Soldier
+from personajes import Demon, Enemigo, Orc, Soldier
 
 def ruta_recurso(*partes):
     carpeta_base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -305,15 +305,16 @@ def rect_boton_menu_principal():
 
 def rect_botones_personajes():
     ancho, alto = pantalla.get_size()
-    ancho_tarjeta = min(300, max(210, (ancho - 90) // 2))
+    ancho_tarjeta = min(260, max(170, (ancho - 120) // 3))
     alto_tarjeta = min(320, max(245, alto - 260))
-    separacion = 24
-    ancho_total = ancho_tarjeta * 2 + separacion
+    separacion = 20
+    ancho_total = ancho_tarjeta * 3 + separacion * 2
     x_inicial = (ancho - ancho_total) // 2
     y_inicial = 130
     return (
         pygame.Rect(x_inicial, y_inicial, ancho_tarjeta, alto_tarjeta),
         pygame.Rect(x_inicial + ancho_tarjeta + separacion, y_inicial, ancho_tarjeta, alto_tarjeta),
+        pygame.Rect(x_inicial + (ancho_tarjeta + separacion) * 2, y_inicial, ancho_tarjeta, alto_tarjeta),
     )
 
 
@@ -339,6 +340,7 @@ def dibujar_selector_personaje_fijo():
     for tarjeta, imagen, nombre, descripcion in (
         (tarjetas[0], soldier_icon, "Soldier", "Arquero equilibrado"),
         (tarjetas[1], terrible_knight_icon, "Terrible Knight", "Caballero de espada"),
+        (tarjetas[2], bridge_heroine_icon, "Bridge Heroine", "Heroina de espada"),
     ):
         pygame.draw.rect(pantalla, COLOR_MADERA_CLARA, tarjeta)
         dibujar_marco(tarjeta)
@@ -458,6 +460,20 @@ def cargar_animaciones_personaje(personaje, estados):
     }
 
 
+def cargar_frames_carpeta(personaje, carpeta):
+    ruta_carpeta = ruta_recurso("assets", "imagenes", personaje, carpeta)
+    archivos = [
+        archivo
+        for archivo in os.listdir(ruta_carpeta)
+        if archivo.lower().endswith(".png")
+    ]
+    archivos.sort(key=lambda archivo: int("".join(filter(str.isdigit, archivo)) or 0))
+    return [
+        pygame.image.load(os.path.join(ruta_carpeta, archivo)).convert_alpha()
+        for archivo in archivos
+    ]
+
+
 def cargar_frames_terrible_knight(carpeta):
     ruta_carpeta = ruta_recurso("assets", "imagenes", "Terrible Knight", "Sprites", carpeta)
     archivos = [
@@ -526,19 +542,37 @@ terrible_knight_image = terrible_knight_animations["idle"][0]
 terrible_knight_dagger = pygame.image.load(
     ruta_recurso("assets", "imagenes", "Terrible Knight", "Projectiles", "dagger.png")
 ).convert_alpha()
+bridge_heroine_animations = {
+    "idle": cargar_frames_carpeta("Bridge Heroine", "Heroine base/Sprites/idle"),
+    "walk": cargar_frames_carpeta("Bridge Heroine", "Heroine base/Sprites/run"),
+    "hurt": cargar_frames_carpeta("Bridge Heroine", "Heroine base/Sprites/idle"),
+    "death": cargar_frames_carpeta("Bridge Heroine", "Heroine base/Sprites/idle"),
+}
+bridge_heroine_image = bridge_heroine_animations["idle"][0]
+bridge_heroine_attacks = {
+    1: cargar_frames_carpeta("Bridge Heroine", "Heroine base/Sprites/player-attack"),
+}
 soldier_icon = pygame.image.load(
     ruta_recurso("assets", "imagenes", "players_icons", "icon1.jpg")
 ).convert()
 terrible_knight_icon = pygame.image.load(
     ruta_recurso("assets", "imagenes", "players_icons", "icon2.jpg")
 ).convert()
+bridge_heroine_icon = pygame.image.load(
+    ruta_recurso("assets", "imagenes", "players_icons", "icon_3.jpg")
+).convert()
+demon_idle_frames = cargar_frames_carpeta("demon-Files", "Sprites/Idle")
+demon_image = demon_idle_frames[0]
+demon_attack_frames = cargar_frames_carpeta("demon-Files", "Sprites/DemonAttack")
+demon_breath_frames = cargar_frames_carpeta("demon-Files", "Sprites/DemonAttackBreath")
 
 ESTANCIAS = [
     {"nombre": "Sala de Cobalto", "enemigo": "Brujo de Cobalto", "imagen": "rpgcritters2_wizzard.png", "carpeta": "", "vida": 260, "ataque": 14, "defensa": 8, "velocidad_enemigo": 1.0, "patrulla": (0.68, 0.90)},
     {"nombre": "Galeria de los Huesos", "enemigo": "Guardian de Huesos", "imagen": "boss_1.png", "carpeta": "boss", "vida": 900},
     {"nombre": "Cripta del Engendro", "enemigo": "Engendro de Huesos", "imagen": "boos_2.png", "carpeta": "boss", "vida": 1150},
     {"nombre": "Nucleo de Ceniza", "enemigo": "Bestia de Ceniza", "imagen": "boss_3.png", "carpeta": "boss", "vida": 1700, "teletransporte": True},
-    {"nombre": "Guarida del Orc", "enemigo": "Orc", "orc": True, "vida": 220, "ataque": 16, "defensa": 8, "velocidad_enemigo": 1.6, "patrulla": (0.55, 0.88)},
+    {"nombre": "Guarida del Orc", "enemigo": "Orc", "orc": True, "vida": 220, "ataque": 16, "defensa": 8, "velocidad_enemigo": 1.6, "patrulla": (0.44, 0.55)},
+    {"nombre": "Santuario del Demon", "enemigo": "Demon", "demon": True, "vida": 520, "ataque": 18, "defensa": 7, "velocidad_enemigo": 1.2, "patrulla": (0.52, 0.82)},
 ]
 
 maximos_atributos = {"vida": 140, "ataque": 100, "defensa": 100, "velocidad": 10}
@@ -559,6 +593,19 @@ def crear_partida(estancia, personaje_seleccionado):
         animaciones_jugador = terrible_knight_animations
         ataques_jugador = terrible_knight_attacks
         proyectil_jugador = terrible_knight_dagger
+    elif personaje_seleccionado == "bridge_heroine":
+        jugador = Soldier(
+            70,
+            suelo - bridge_heroine_image.get_height(),
+            bridge_heroine_image,
+            vida=135,
+            ataque=19,
+            defensa=7,
+            velocidad=3.2,
+        )
+        animaciones_jugador = bridge_heroine_animations
+        ataques_jugador = bridge_heroine_attacks
+        proyectil_jugador = arrow_image
     else:
         jugador = Soldier(
             70,
@@ -583,8 +630,22 @@ def crear_partida(estancia, personaje_seleccionado):
             defensa=estancia.get("defensa", 8),
             velocidad=estancia.get("velocidad_enemigo", 1.6),
         )
+    elif estancia.get("demon"):
+        enemigo = Demon(
+            constantes.ANCHO_VENTANA - demon_image.get_width() - 80,
+            suelo - demon_image.get_height(),
+            demon_idle_frames,
+            {1: demon_attack_frames, 2: demon_breath_frames},
+            vida=estancia["vida"],
+            ataque=estancia.get("ataque", 18),
+            defensa=estancia.get("defensa", 7),
+        )
     else:
-        imagen_enemigo, imagen_enemigo_left = cargar_par(estancia["imagen"], estancia["carpeta"])
+        if estancia.get("demon"):
+            imagen_enemigo = demon_image
+            imagen_enemigo_left = pygame.transform.flip(demon_image, True, False)
+        else:
+            imagen_enemigo, imagen_enemigo_left = cargar_par(estancia["imagen"], estancia["carpeta"])
         enemigo = Enemigo(
             constantes.ANCHO_VENTANA - imagen_enemigo.get_width() - 80,
             suelo - imagen_enemigo.get_height(),
@@ -600,7 +661,7 @@ def crear_partida(estancia, personaje_seleccionado):
     jugador.configurar_animaciones(animaciones_jugador)
     jugador.configurar_ataques(ataques_jugador)
     jugador.configurar_arrow([proyectil_jugador])
-    if not estancia.get("orc"):
+    if not estancia.get("orc") and not estancia.get("demon"):
         enemigo.configurar_ataque_fb(fb_frames, fb_frames_left)
     if enemigo.puede_teletransportarse:
         enemigo.configurar_teletransporte(teleport_frames, teleport_frames_left)
@@ -701,6 +762,10 @@ while True:
                 personaje_seleccionado = "terrible_knight"
                 estado = "seleccion"
                 continue
+            if tarjetas[2].collidepoint(evento.pos):
+                personaje_seleccionado = "bridge_heroine"
+                estado = "seleccion"
+                continue
         if estado == "seleccion" and evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
             if rect_boton_menu_principal().collidepoint(evento.pos):
                 estado = "inicio"
@@ -775,7 +840,7 @@ while True:
         jugador.movimiento(mover_izquierda, mover_derecha, saltar, suelo)
         jugador.x = max(0, min(jugador.x, constantes.ANCHO_VENTANA - jugador.rect.width))
         jugador.rect.topleft = (jugador.x, jugador.y)
-        if not enemigo.teletransportandose:
+        if not enemigo.teletransportandose and not isinstance(enemigo, Demon):
             patrulla = estancia_seleccionada.get("patrulla")
             if patrulla:
                 limite_izquierdo = int(constantes.ANCHO_VENTANA * patrulla[0])
@@ -791,7 +856,10 @@ while True:
             35,
             constantes.ANCHO_VENTANA - 35,
         )
-        if isinstance(enemigo, Orc):
+        if isinstance(enemigo, Demon):
+            enemigo.actualizar_ataque_demon()
+            enemigo.atacar_con_demon(jugador)
+        elif isinstance(enemigo, Orc):
             distancia_orc = abs(jugador.rect.centerx - enemigo.rect.centerx)
             if distancia_orc <= 170 and enemigo.ataque_orc_activo is None:
                 enemigo.activar_ataque_orc(1 if pygame.time.get_ticks() % 2 else 2)
